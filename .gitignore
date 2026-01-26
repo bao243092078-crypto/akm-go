@@ -1,0 +1,31 @@
+# Binary (root level only)
+/akm
+/akm.exe
+
+# Web UI build artifacts (embedded in binary)
+cmd/akm/web/dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug
+*.log
+debug/

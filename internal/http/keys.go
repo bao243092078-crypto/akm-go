@@ -1,0 +1,222 @@
+package http
+
+import (
+	"net/http"
+
+	"github.com/baobao/akm-go/internal/core"
+	"github.com/gin-gonic/gin"
+)
+
+type keyResponse struct {
+	Name           string   `json:"name"`
+	Provider       string   `json:"provider"`
+	Description    *string  `json:"description,omitempty"`
+	SourceProject  *string  `json:"source_project,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	IsActive       bool     `json:"is_active"`
+	CreatedAt      string   `json:"created_at"`
+	UpdatedAt      string   `json:"updated_at"`
+	ModelVersion   *string  `json:"model_version,omitempty"`
+	ModelName      *string  `json:"model_name,omitempty"`
+}
+
+type addKeyRequest struct {
+	Name        string   `json:"name" binding:"required"`
+	Value       string   `json:"value" binding:"required"`
+	Provider    string   `json:"provider"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+}
+
+func listKeysHandler(c *gin.Context) {
+	provider := c.Query("provider")
+
+	storage, err := core.GetStorage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	keys := storage.ListKeys(provider)
+
+	response := make([]keyResponse, 0, len(keys))
+	for _, key := range keys {
+		response = append(response, keyResponse{
+			Name:          key.Name,
+			Provider:      key.Provider,
+			Description:   key.Description,
+			SourceProject: key.SourceProject,
+			Tags:          key.Tags,
+			IsActive:      key.IsActive,
+			CreatedAt:     key.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			UpdatedAt:     key.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			ModelVersion:  key.ModelVersion,
+			ModelName:     key.ModelName,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"keys":  response,
+		"count": len(response),
+	})
+}
+
+func getKeyHandler(c *gin.Context) {
+	name := c.Param("name")
+	showValue := c.Query("show_value") == "true"
+
+	storage, err := core.GetStorage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	key := storage.GetKey(name)
+	if key == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "key not found"})
+		return
+	}
+
+	response := gin.H{
+		"name":           key.Name,
+		"provider":       key.Provider,
+		"description":    key.Description,
+		"source_project": key.SourceProject,
+		"tags":           key.Tags,
+		"is_active":      key.IsActive,
+		"created_at":     key.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		"updated_at":     key.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+
+	if showValue {
+		value, err := storage.GetKeyValue(name, "api")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt key"})
+			return
+		}
+		response["value"] = value
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func addKeyHandler(c *gin.Context) {
+	var req addKeyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	storage, err := core.GetStorage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Check if key already exists
+	if storage.GetKey(req.Name) != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "key already exists"})
+		return
+	}
+
+	provider := req.Provider
+	if provider == "" {
+		provider = "unknown"
+	}
+
+	var opts []core.KeyOption
+	if req.Description != "" {
+		opts = append(opts, core.WithDescription(req.Description))
+	}
+	if len(req.Tags) > 0 {
+		opts = append(opts, core.WithTags(req.Tags))
+	}
+
+	key, err := storage.AddKey(req.Name, req.Value, provider, opts...)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gin.H{
+		"message": "key added successfully",
+		"name":    key.Name,
+	})
+}
+
+func deleteKeyHandler(c *gin.Context) {
+	name := c.Param("name")
+
+	storage, err := core.GetStorage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if storage.GetKey(name) == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "key not found"})
+		return
+	}
+
+	if err := storage.DeleteKey(name); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "key deleted successfully"})
+}
+
+func exportEnvHandler(c *gin.Context) {
+	var req struct {
+		Provider string   `json:"provider"`
+		Keys     []string `json:"keys"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Allow empty body
+		req.Provider = ""
+		req.Keys = nil
+	}
+
+	storage, err := core.GetStorage()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	keys, err := storage.GetKeysForExport("api-export", req.Provider, req.Keys)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Generate .env format
+	var lines []string
+	lines = append(lines, "# Generated by akm API")
+	for name, value := range keys {
+		escaped := core.EscapeDotenvValue(value)
+		lines = append(lines, name+`="`+escaped+`"`)
+	}
+
+	c.Header("Content-Type", "text/plain")
+	c.Header("Content-Disposition", "attachment; filename=.env")
+	c.String(http.StatusOK, "%s\n", lines)
+}
+
+func healthHandler(c *gin.Context) {
+	storage, err := core.GetStorage()
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"status": "unhealthy",
+			"error":  err.Error(),
+		})
+		return
+	}
+
+	keys := storage.ListKeys("")
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "healthy",
+		"keys_count": len(keys),
+	})
+}
