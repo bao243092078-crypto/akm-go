@@ -38,6 +38,11 @@ var injectCmd = &cobra.Command{
 
 		// --all mode: scan parent directory for akm.yaml files
 		if allDir != "" {
+			// Expand ~ to home directory
+			if strings.HasPrefix(allDir, "~/") {
+				homeDir, _ := os.UserHomeDir()
+				allDir = filepath.Join(homeDir, allDir[2:])
+			}
 			return injectAll(storage, allDir, force)
 		}
 
@@ -152,6 +157,9 @@ func injectAll(storage *core.KeyStorage, parentDir string, force bool) error {
 	}
 
 	fmt.Printf("\n完成: %d 成功, %d 失败\n", success, failed)
+	if failed > 0 {
+		return fmt.Errorf("%d 个项目注入失败", failed)
+	}
 	return nil
 }
 

@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/baobao/akm-go/internal/core"
@@ -28,6 +30,8 @@ var verifyCmd = &cobra.Command{
 			keys = nil
 			if k := storage.GetKey(name); k != nil {
 				keys = append(keys, k)
+			} else {
+				return fmt.Errorf("密钥 '%s' 不存在", name)
 			}
 		}
 		if len(keys) == 0 {
@@ -203,10 +207,15 @@ var masterKeyExportCmd = &cobra.Command{
 }
 
 var masterKeyImportCmd = &cobra.Command{
-	Use:   "import <KEY>",
+	Use:   "import",
 	Short: "导入 master key",
-	Long:  "从备份导入 master key（覆盖当前 Keychain 中的 key）",
-	Args:  cobra.ExactArgs(1),
+	Long: `从备份导入 master key（覆盖当前 Keychain 中的 key）。
+从 stdin 读取密钥，避免泄漏到 shell 历史记录。
+
+示例:
+  echo 'KEY' | akm master-key import
+  akm master-key import < key.txt
+  akm master-key import              # 交互式输入`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		force, _ := cmd.Flags().GetBool("force")
 
@@ -220,12 +229,23 @@ var masterKeyImportCmd = &cobra.Command{
 			}
 		}
 
+		// Read key from stdin to avoid shell history leaks
+		fmt.Fprint(os.Stderr, "请输入 master key: ")
+		scanner := bufio.NewScanner(os.Stdin)
+		if !scanner.Scan() {
+			return fmt.Errorf("未读取到输入")
+		}
+		keyInput := strings.TrimSpace(scanner.Text())
+		if keyInput == "" {
+			return fmt.Errorf("master key 不能为空")
+		}
+
 		crypto, err := core.GetCrypto()
 		if err != nil {
 			return fmt.Errorf("加密系统初始化失败: %w", err)
 		}
 
-		if err := crypto.ImportMasterKey(args[0]); err != nil {
+		if err := crypto.ImportMasterKey(keyInput); err != nil {
 			return fmt.Errorf("导入失败: %w", err)
 		}
 

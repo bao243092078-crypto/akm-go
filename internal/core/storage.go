@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/baobao/akm-go/internal/models"
@@ -393,8 +394,8 @@ func (s *KeyStorage) getKeysBatch(project, provider string, keyNames []string, a
 	return result, nil
 }
 
-// AuditErrors tracks audit log write failures.
-var AuditErrors int64
+// AuditErrors tracks audit log write failures (use atomic operations).
+var AuditErrors atomic.Int64
 
 // logUsage writes an audit log entry.
 func (s *KeyStorage) logUsage(keyName, action, project string) {
@@ -419,16 +420,16 @@ func (s *KeyStorage) logUsage(keyName, action, project string) {
 	// Append to audit file
 	f, err := os.OpenFile(s.auditFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		AuditErrors++
-		fmt.Fprintf(os.Stderr, "⚠️  审计日志写入失败 (累计 %d 次): %v\n", AuditErrors, err)
+		cnt := AuditErrors.Add(1)
+		fmt.Fprintf(os.Stderr, "⚠️  审计日志写入失败 (累计 %d 次): %v\n", cnt, err)
 		return
 	}
 	defer f.Close()
 
 	logBytes, _ := json.Marshal(log)
 	if _, err := f.Write(logBytes); err != nil {
-		AuditErrors++
-		fmt.Fprintf(os.Stderr, "⚠️  审计日志写入失败 (累计 %d 次): %v\n", AuditErrors, err)
+		cnt := AuditErrors.Add(1)
+		fmt.Fprintf(os.Stderr, "⚠️  审计日志写入失败 (累计 %d 次): %v\n", cnt, err)
 		return
 	}
 	f.WriteString("\n")

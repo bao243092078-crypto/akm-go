@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/baobao/akm-go/internal/models"
 )
 
 // VerifyResult holds the result of a key verification.
@@ -46,8 +48,12 @@ var providerVerifiers = map[string]providerVerifier{
 	},
 	"gemini": {
 		buildRequest: func(apiKey string) (*http.Request, error) {
-			url := "https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey
-			return http.NewRequest("GET", url, nil)
+			req, err := http.NewRequest("GET", "https://generativelanguage.googleapis.com/v1beta/models", nil)
+			if err != nil {
+				return nil, err
+			}
+			req.Header.Set("x-goog-api-key", apiKey)
+			return req, nil
 		},
 	},
 	"deepseek": {
@@ -150,16 +156,16 @@ func VerifyKey(name, provider, value string) *VerifyResult {
 func VerifyAll(storage *KeyStorage, provider, name string) []*VerifyResult {
 	keys := storage.ListKeys(provider)
 
-	// Filter by name if specified
+	// Filter by name if specified (preserve provider filter)
 	if name != "" {
-		var filtered = storage.ListKeys("")
-		keys = nil
-		for _, k := range filtered {
+		var filtered []*models.APIKey
+		for _, k := range keys {
 			if k.Name == name {
-				keys = append(keys, k)
+				filtered = append(filtered, k)
 				break
 			}
 		}
+		keys = filtered
 	}
 
 	if len(keys) == 0 {
