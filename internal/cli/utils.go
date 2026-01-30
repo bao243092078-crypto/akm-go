@@ -175,6 +175,69 @@ var backupCmd = &cobra.Command{
 	},
 }
 
+var masterKeyCmd = &cobra.Command{
+	Use:   "master-key",
+	Short: "管理 master key",
+	Long:  "导出或导入 master key（用于备份恢复或迁移机器）",
+}
+
+var masterKeyExportCmd = &cobra.Command{
+	Use:   "export",
+	Short: "导出 master key",
+	Long:  "导出 master key 用于备份。请安全保存输出内容！",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		crypto, err := core.GetCrypto()
+		if err != nil {
+			return fmt.Errorf("加密系统初始化失败: %w", err)
+		}
+
+		key, err := crypto.ExportMasterKey()
+		if err != nil {
+			return fmt.Errorf("导出失败: %w", err)
+		}
+
+		printWarning("以下是 master key，请安全保存（丢失将无法解密所有密钥）：")
+		fmt.Println(key)
+		return nil
+	},
+}
+
+var masterKeyImportCmd = &cobra.Command{
+	Use:   "import <KEY>",
+	Short: "导入 master key",
+	Long:  "从备份导入 master key（覆盖当前 Keychain 中的 key）",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		force, _ := cmd.Flags().GetBool("force")
+
+		if !force {
+			fmt.Print("⚠️  此操作将覆盖当前 master key！确认继续? [y/N]: ")
+			var response string
+			fmt.Scanln(&response)
+			if response != "y" && response != "yes" {
+				fmt.Println("已取消")
+				return nil
+			}
+		}
+
+		crypto, err := core.GetCrypto()
+		if err != nil {
+			return fmt.Errorf("加密系统初始化失败: %w", err)
+		}
+
+		if err := crypto.ImportMasterKey(args[0]); err != nil {
+			return fmt.Errorf("导入失败: %w", err)
+		}
+
+		printSuccess("master key 已导入到 Keychain")
+		return nil
+	},
+}
+
 func init() {
 	backupCmd.Flags().StringP("output", "o", "", "备份输出目录")
+
+	masterKeyImportCmd.Flags().BoolP("force", "f", false, "跳过确认")
+	masterKeyCmd.AddCommand(masterKeyExportCmd)
+	masterKeyCmd.AddCommand(masterKeyImportCmd)
 }

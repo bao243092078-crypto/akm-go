@@ -146,6 +146,39 @@ func (k *KeyEncryption) VerifySignature(message, signature string) (bool, error)
 	return hmac.Equal([]byte(expected), []byte(signature)), nil
 }
 
+// ExportMasterKey returns the base64-encoded master key for backup purposes.
+func (k *KeyEncryption) ExportMasterKey() (string, error) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+
+	if k.masterKey == nil {
+		return "", fmt.Errorf("encryption system not initialized")
+	}
+
+	return k.masterKey.Encode(), nil
+}
+
+// ImportMasterKey imports a base64-encoded master key and stores it in keychain.
+func (k *KeyEncryption) ImportMasterKey(encodedKey string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	// Validate the key
+	key, err := fernet.DecodeKey(encodedKey)
+	if err != nil {
+		return fmt.Errorf("invalid master key format: %w", err)
+	}
+
+	// Store in keychain
+	masterKeyB64 := base64.StdEncoding.EncodeToString([]byte(encodedKey))
+	if err := keyring.Set(ServiceName, MasterKeyAccount, masterKeyB64); err != nil {
+		return fmt.Errorf("failed to store master key in keychain: %w", err)
+	}
+
+	k.masterKey = key
+	return nil
+}
+
 // ResetMasterKey deletes the master key from keychain (dangerous operation).
 func (k *KeyEncryption) ResetMasterKey() error {
 	k.mu.Lock()

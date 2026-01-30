@@ -58,6 +58,7 @@ func init() {
 	rootCmd.AddCommand(backupCmd)
 	rootCmd.AddCommand(serverCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(masterKeyCmd)
 }
 
 // printError prints an error message to stderr.
