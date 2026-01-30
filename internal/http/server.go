@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -30,17 +31,26 @@ func StartServer(port int, enableWeb bool) error {
 	r := gin.Default()
 
 	// CORS configuration
+	allowOrigins := loadCorsOrigins()
+	allowCredentials := true
+	for _, origin := range allowOrigins {
+		if origin == "*" {
+			allowCredentials = false
+			break
+		}
+	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOrigins:     allowOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
+		AllowCredentials: allowCredentials,
 		MaxAge:           12 * time.Hour,
 	}))
 
 	// API routes
 	api := r.Group("/api")
+	api.Use(apiKeyMiddleware())
 	{
 		// Keys
 		api.GET("/keys", listKeysHandler)
@@ -113,4 +123,84 @@ func StartServer(port int, enableWeb bool) error {
 	fmt.Println()
 
 	return r.Run(addr)
+}
+
+func loadCorsOrigins() []string {
+	raw := strings.TrimSpace(os.Getenv("AKM_CORS_ORIGINS"))
+	if raw == "" {
+		return []string{
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
+		}
+	}
+	items := []string{}
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			items = append(items, value)
+		}
+	}
+	if len(items) == 0 {
+		return []string{"*"}
+	}
+	return items
+}
+
+func apiKeyMiddleware() gin.HandlerFunc {
+	require := parseBoolEnv("AKM_REQUIRE_API_KEY", false) || os.Getenv("AKM_API_KEY") != ""
+	return func(c *gin.Context) {
+		if !require || c.Request.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
+		if c.Request.URL.Path == "/api/health" {
+			c.Next()
+			return
+		}
+		apiKey := os.Getenv("AKM_API_KEY")
+		if apiKey == "" {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "AKM_API_KEY not configured"})
+			return
+		}
+		token := extractBearerToken(c.GetHeader("Authorization"))
+		if token == "" {
+			token = c.GetHeader("X-API-Key")
+		}
+		if token == "" {
+			token = c.GetHeader("Api-Key")
+		}
+		if token != apiKey {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		c.Next()
+	}
+}
+
+func extractBearerToken(header string) string {
+	if header == "" {
+		return ""
+	}
+	parts := strings.Fields(header)
+	if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+		return parts[1]
+	}
+	return ""
+}
+
+func parseBoolEnv(name string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "yes", "y", "on":
+		return true
+	case "0", "false", "no", "n", "off":
+		return false
+	default:
+		return fallback
+	}
 }
