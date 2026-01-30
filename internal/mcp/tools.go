@@ -125,45 +125,22 @@ func getKey(name string) (string, error) {
 	return string(jsonBytes), nil
 }
 
-// verifyKeys verifies key validity.
+// verifyKeys verifies key validity by calling provider APIs.
 func verifyKeys(name string) (string, error) {
 	storage, err := core.GetStorage()
 	if err != nil {
 		return "", fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	var keys []*struct {
-		Name     string
-		Provider string
-	}
-
 	if name != "" {
-		key := storage.GetKey(name)
-		if key == nil {
+		if storage.GetKey(name) == nil {
 			return "", fmt.Errorf("key '%s' not found", name)
 		}
-		keys = append(keys, &struct {
-			Name     string
-			Provider string
-		}{key.Name, key.Provider})
-	} else {
-		for _, key := range storage.ListKeys("") {
-			keys = append(keys, &struct {
-				Name     string
-				Provider string
-			}{key.Name, key.Provider})
-		}
 	}
 
-	// TODO: Implement actual verification via provider APIs
-	results := make([]map[string]interface{}, 0, len(keys))
-	for _, key := range keys {
-		results = append(results, map[string]interface{}{
-			"name":     key.Name,
-			"provider": key.Provider,
-			"status":   "pending",
-			"message":  "验证功能开发中",
-		})
+	results := core.VerifyAll(storage, "", name)
+	if len(results) == 0 {
+		return `{"results":[],"count":0}`, nil
 	}
 
 	jsonBytes, err := json.MarshalIndent(map[string]interface{}{

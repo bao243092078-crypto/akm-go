@@ -15,12 +15,21 @@ var verifyCmd = &cobra.Command{
 	Short: "验证密钥有效性",
 	Long:  "通过调用各提供商 API 验证密钥是否有效",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		provider, _ := cmd.Flags().GetString("provider")
+		name, _ := cmd.Flags().GetString("name")
+
 		storage, err := core.GetStorage()
 		if err != nil {
 			return fmt.Errorf("failed to initialize storage: %w", err)
 		}
 
-		keys := storage.ListKeys("")
+		keys := storage.ListKeys(provider)
+		if name != "" {
+			keys = nil
+			if k := storage.GetKey(name); k != nil {
+				keys = append(keys, k)
+			}
+		}
 		if len(keys) == 0 {
 			fmt.Println("没有密钥需要验证")
 			return nil
@@ -28,14 +37,46 @@ var verifyCmd = &cobra.Command{
 
 		fmt.Printf("验证 %d 个密钥...\n\n", len(keys))
 
-		// TODO: Implement actual API verification
-		for _, key := range keys {
-			fmt.Printf("  %s (%s): ", key.Name, key.Provider)
-			fmt.Println("⏳ 验证功能开发中...")
+		results := core.VerifyAll(storage, provider, name)
+
+		for _, r := range results {
+			var icon string
+			switch r.Status {
+			case "valid":
+				icon = "\033[32m✓\033[0m" // green
+			case "invalid":
+				icon = "\033[31m✗\033[0m" // red
+			case "error":
+				icon = "\033[33m!\033[0m" // yellow
+			default:
+				icon = "\033[90m-\033[0m" // gray
+			}
+			fmt.Printf("  %s %s (%s): %s\n", icon, r.Name, r.Provider, r.Message)
 		}
+
+		// Summary
+		var valid, invalid, errCount, unsupported int
+		for _, r := range results {
+			switch r.Status {
+			case "valid":
+				valid++
+			case "invalid":
+				invalid++
+			case "error":
+				errCount++
+			case "unsupported":
+				unsupported++
+			}
+		}
+		fmt.Printf("\n结果: %d 有效, %d 无效, %d 错误, %d 不支持\n", valid, invalid, errCount, unsupported)
 
 		return nil
 	},
+}
+
+func init() {
+	verifyCmd.Flags().StringP("provider", "p", "", "按提供商过滤")
+	verifyCmd.Flags().StringP("name", "n", "", "指定密钥名称")
 }
 
 var healthCmd = &cobra.Command{
