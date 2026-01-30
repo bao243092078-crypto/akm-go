@@ -65,6 +65,17 @@ func StartServer(port int, enableWeb bool) error {
 		api.GET("/health", healthHandler)
 	}
 
+	// Proxy routes (OpenAI-compatible)
+	v1 := r.Group("/v1")
+	v1.Use(apiKeyMiddleware())
+	{
+		v1.Any("/chat/completions", proxyHandler)
+		v1.Any("/completions", proxyHandler)
+		v1.Any("/embeddings", proxyHandler)
+		v1.Any("/models", proxyHandler)
+		v1.Any("/models/*path", proxyHandler)
+	}
+
 	// Web UI (if enabled)
 	if enableWeb {
 		// Try to serve embedded web assets
@@ -117,6 +128,7 @@ func StartServer(port int, enableWeb bool) error {
 
 	addr := fmt.Sprintf(":%d", port)
 	fmt.Printf("🌐 HTTP API: http://localhost%s/api\n", addr)
+	fmt.Printf("🔀 Proxy:    http://localhost%s/v1/chat/completions\n", addr)
 	if enableWeb {
 		fmt.Printf("🖥️  Web UI:   http://localhost%s/\n", addr)
 	}
