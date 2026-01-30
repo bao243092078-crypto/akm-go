@@ -43,7 +43,7 @@ var healthCmd = &cobra.Command{
 	Short: "系统健康检查",
 	Long:  "检查加密系统、存储、审计日志等状态",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		fmt.Println("🔍 API Key Manager 健康检查\n")
+		fmt.Println("🔍 API Key Manager 健康检查")
 
 		// Check crypto
 		fmt.Print("加密系统: ")
